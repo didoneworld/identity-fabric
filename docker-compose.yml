@@ -1,0 +1,75 @@
+# Identity Fabric: API + SurrealDB + Caddy (automatic HTTPS).
+# Used as-is on the OVH VPS; see docs/deploy-ovh.md.
+name: identity-fabric
+
+x-surreal-image: &surreal-image surrealdb/surrealdb:v2.3.10
+
+services:
+  # SurrealDB runs as uid 65532 (distroless image); make the volume writable for it.
+  surrealdb-volume-init:
+    image: busybox:1.37
+    command: ["sh", "-c", "chown -R 65532:65532 /data"]
+    volumes: [surrealdb-data:/data]
+    restart: "no"
+
+  surrealdb:
+    image: *surreal-image
+    command: ["start", "--log", "info", "rocksdb:/data/identity.db"]
+    environment:
+      SURREAL_USER: ${SURREAL_USER:-root}
+      SURREAL_PASS: ${SURREAL_PASS:?set SURREAL_PASS in .env}
+    volumes: [surrealdb-data:/data]
+    depends_on:
+      surrealdb-volume-init: {condition: service_completed_successfully}
+    healthcheck:
+      test: ["CMD", "/surreal", "is-ready", "--endpoint", "http://localhost:8000"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+    restart: unless-stopped
+    # Not published: only reachable on the internal network.
+
+  # Applies schema/identity_fabric.surql on every deploy (idempotent: OVERWRITE).
+  schema-init:
+    image: *surreal-image
+    command:
+      - import
+      - --endpoint=http://surrealdb:8000
+      - --username=${SURREAL_USER:-root}
+      - --password=${SURREAL_PASS}
+      - --namespace=${SURREAL_NS:-autonomyx}
+      - --database=${SURREAL_DB:-identity_fabric}
+      - /schema/identity_fabric.surql
+    volumes: [./schema:/schema:ro]
+    depends_on:
+      surrealdb: {condition: service_healthy}
+    restart: "no"
+
+  api:
+    image: ${IMAGE:-ghcr.io/didoneworld/identity-fabric}:${IMAGE_TAG:-latest}
+    build: .
+    env_file: .env
+    environment:
+      SURREAL_URL: ws://surrealdb:8000/rpc
+    depends_on:
+      schema-init: {condition: service_completed_successfully}
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2.10-alpine
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+      ACME_EMAIL: ${ACME_EMAIL:?set ACME_EMAIL in .env}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      api: {condition: service_healthy}
+    restart: unless-stopped
+
+volumes:
+  surrealdb-data:
+  caddy-data:
+  caddy-config:

@@ -1,0 +1,28 @@
+[project]
+name = "identity-fabric"
+version = "0.1.0"
+description = "Cross-provider identity resolution graph on SurrealDB"
+requires-python = ">=3.11"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.30,<1",
+  "httpx>=0.27,<1",
+  "cryptography>=43",
+  "pyjwt[crypto]>=2.9,<3",
+  "surrealdb>=1.0.8,<2",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.24"]
+
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["identity_fabric*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+testpaths = ["tests"]
